@@ -2,41 +2,58 @@ name: Build Bypass Fabric Mod
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-env:
-  JAVA_VERSION: '21'
-  GRADLE_VERSION: '9.2.1'
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out source
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
+          java-version: "21"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: ${{ env.GRADLE_VERSION }}
+          gradle-version: "9.2.1"
 
-      - name: Build remapped mod JAR
-        run: gradle build --no-daemon
+      - name: Extract source.zip
+        run: |
+          test -f source.zip || { echo "ERROR: source.zip was not found in the repository root."; exit 1; }
+          mkdir -p extracted-source
+          unzip -q source.zip -d extracted-source
+
+      - name: Find Gradle project
+        id: project
+        shell: bash
+        run: |
+          SETTINGS_FILE="$(find extracted-source -type f -name settings.gradle -o -name settings.gradle.kts | head -n 1)"
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERROR: No settings.gradle or settings.gradle.kts was found inside source.zip."
+            echo "Make sure source.zip contains the complete Bypass Fabric project."
+            exit 1
+          fi
+          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Found Gradle project at: $PROJECT_DIR"
+
+      - name: Build remapped Fabric mod JAR
+        run: gradle -p "${{ steps.project.outputs.dir }}" build --no-daemon
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
           name: Bypass-Fabric-1.21.11
-          path: build/libs/bypass-1.0.0.jar
+          path: ${{ steps.project.outputs.dir }}/build/libs/*.jar
           if-no-files-found: error
           retention-days: 30
+          
